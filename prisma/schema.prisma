@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  EMPLOYEE
+  APPROVER
+  ADMIN
+}
+
+enum LeaveType {
+  VACATION
+  SICK
+  UNPAID
+  PARENTAL
+  OTHER
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(EMPLOYEE)
+  department   String?
+  allowance    Int      @default(25)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  requests  LeaveRequest[] @relation("requester")
+  decisions LeaveRequest[] @relation("decider")
+}
+
+model LeaveRequest {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation("requester", fields: [userId], references: [id], onDelete: Cascade)
+  type         LeaveType     @default(VACATION)
+  startDate    DateTime
+  endDate      DateTime
+  days         Int
+  reason       String?
+  status       RequestStatus @default(PENDING)
+  decidedById  String?
+  decidedBy    User?         @relation("decider", fields: [decidedById], references: [id])
+  decidedAt    DateTime?
+  decisionNote String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
