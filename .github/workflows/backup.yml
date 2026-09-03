@@ -1,0 +1,39 @@
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: '15 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download JSON export from the HR portal
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$BACKUP_TOKEN" ]; then
+            echo "APP_URL and BACKUP_TOKEN repository secrets must be set."
+            exit 1
+          fi
+          mkdir -p backups
+          STAMP=$(date -u +%Y-%m-%d)
+          HTTP_CODE=$(curl -sS -o "backups/hr-backup-$STAMP.json" -w "%{http_code}" \
+            -H "Authorization: Bearer $BACKUP_TOKEN" \
+            "$APP_URL/api/backup")
+          echo "HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Backup request failed:"
+            cat "backups/hr-backup-$STAMP.json" || true
+            exit 1
+          fi
+          python3 -c "import json,sys; d=json.load(open('backups/hr-backup-$STAMP.json')); print('users:', d['counts']['users'], 'requests:', d['counts']['requests'])"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hr-portal-backup
+          path: backups/
+          retention-days: 30
