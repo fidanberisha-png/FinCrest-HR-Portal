@@ -1,7 +1,7 @@
 import prisma from '../../../lib/prisma';
 import { requireUser, hasRole } from '../../../lib/auth';
 import { parseDate, businessDays } from '../../../lib/dates';
-import { notifyNewRequest } from '../../../lib/mailer';
+import { notifyNewRequest, notifyDecision } from '../../../lib/mailer';
 
 const TYPES = ['VACATION', 'SICK', 'UNPAID', 'PARENTAL', 'OTHER'];
 
@@ -48,6 +48,11 @@ export default async function handler(req, res) {
     });
     if (overlap) return res.status(409).json({ error: 'You already have a request that overlaps those dates' });
 
+    // Kosovo Labour Law (Law No. 03/L-212): sick leave of 1-2 days requires no
+    // approval and no medical certificate - it is a notification only. A
+    // certificate is only required starting from the 3rd consecutive day.
+    const isShortSick = type === 'SICK' && days <= 2;
+
     try {
       const created = await prisma.leaveRequest.create({
         data: {
@@ -56,13 +61,24 @@ export default async function handler(req, res) {
           startDate: start,
           endDate: end,
           days: days,
-          reason: reason || null
+          reason: reason || null,
+          status: isShortSick ? 'APPROVED' : 'PENDING',
+          decidedAt: isShortSick ? new Date() : null,
+          decisionNote: isShortSick
+            ? 'Auto-approved per Kosovo Labour Law (Law No. 03/L-212): sick leave of 1-2 days does not require approval or a medical certificate. This is a notification only.'
+            : (type === 'SICK' ? 'A medical certificate is required from day 3 of sick leave onward, per Kosovo Labour Law.' : null)
         }
       });
 
-      notifyNewRequest(created, user).catch(function (err) {
-        console.error('[requests] notification failed: ' + err.message);
-      });
+      if (isShortSick) {
+        notifyDecision(created, user, null).catch(function (err) {
+          console.error('[requests] notification failed: ' + err.message);
+        });
+      } else {
+        notifyNewRequest(created, user).catch(function (err) {
+          console.error('[requests] notification failed: ' + err.message);
+        });
+      }
 
       return res.status(201).json(created);
     } catch (err) {
