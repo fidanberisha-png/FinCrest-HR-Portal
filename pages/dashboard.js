@@ -1,0 +1,207 @@
+import { useState } from 'react';
+import { useRouter } from 'next/router';
+import Layout from '../components/Layout';
+import StatusBadge from '../components/StatusBadge';
+import prisma from '../lib/prisma';
+import { getCurrentUser } from '../lib/auth';
+import { ymd } from '../lib/dates';
+
+export async function getServerSideProps(ctx) {
+  const user = await getCurrentUser(ctx.req);
+  if (!user) {
+    return { redirect: { destination: '/login', permanent: false } };
+  }
+
+  const rows = await prisma.leaveRequest.findMany({
+    where: { userId: user.id },
+    orderBy: { startDate: 'desc' },
+    take: 100
+  });
+
+  const year = new Date().getUTCFullYear();
+  let usedDays = 0;
+  let pendingDays = 0;
+  rows.forEach(function (r) {
+    if (new Date(r.startDate).getUTCFullYear() !== year) return;
+    if (r.status === 'APPROVED' && r.type === 'VACATION') usedDays += r.days;
+    if (r.status === 'PENDING') pendingDays += r.days;
+  });
+
+  return {
+    props: {
+      user: user,
+      requests: JSON.parse(JSON.stringify(rows)),
+      usedDays: usedDays,
+      pendingDays: pendingDays
+    }
+  };
+}
+
+export default function Dashboard(props) {
+  const router = useRouter();
+  const [form, setForm] = useState({ type: 'VACATION', startDate: '', endDate: '', reason: '' });
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  function update(key) {
+    return function (e) {
+      const next = Object.assign({}, form);
+      next[key] = e.target.value;
+      setForm(next);
+    };
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    setNotice('');
+    setBusy(true);
+    const res = await fetch('/api/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form)
+    });
+    const data = await res.json().catch(function () {
+      return {};
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(data.error || 'Could not submit the request');
+      return;
+    }
+    setNotice('Request submitted. Your approver has been notified by email.');
+    setForm({ type: 'VACATION', startDate: '', endDate: '', reason: '' });
+    router.replace(router.asPath);
+  }
+
+  async function cancel(id) {
+    setError('');
+    setNotice('');
+    const res = await fetch('/api/requests/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel' })
+    });
+    const data = await res.json().catch(function () {
+      return {};
+    });
+    if (!res.ok) {
+      setError(data.error || 'Could not cancel the request');
+      return;
+    }
+    setNotice('Request cancelled.');
+    router.replace(router.asPath);
+  }
+
+  const remaining = props.user.allowance - props.usedDays;
+
+  return (
+    <Layout user={props.user}>
+      <h1>My dashboard</h1>
+
+      <div className="stats">
+        <div className="stat">
+          <div className="n">{props.user.allowance}</div>
+          <div className="l">Annual allowance</div>
+        </div>
+        <div className="stat">
+          <div className="n">{props.usedDays}</div>
+          <div className="l">Approved days used</div>
+        </div>
+        <div className="stat">
+          <div className="n">{props.pendingDays}</div>
+          <div className="l">Days pending</div>
+        </div>
+        <div className="stat">
+          <div className="n">{remaining}</div>
+          <div className="l">Days remaining</div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 20 }}>
+        <h2>New leave request</h2>
+        <form onSubmit={submit}>
+          <div className="row">
+            <div>
+              <label htmlFor="type">Type</label>
+              <select id="type" value={form.type} onChange={update('type')}>
+                <option value="VACATION">Vacation / PTO</option>
+                <option value="SICK">Sick leave</option>
+                <option value="UNPAID">Unpaid leave</option>
+                <option value="PARENTAL">Parental leave</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="startDate">First day</label>
+              <input id="startDate" type="date" value={form.startDate} onChange={update('startDate')} required />
+            </div>
+            <div>
+              <label htmlFor="endDate">Last day</label>
+              <input id="endDate" type="date" value={form.endDate} onChange={update('endDate')} required />
+            </div>
+          </div>
+          <label htmlFor="reason">Reason / notes (optional)</label>
+          <textarea id="reason" value={form.reason} onChange={update('reason')} />
+          {error ? <div className="err">{error}</div> : null}
+          {notice ? <div className="ok-msg">{notice}</div> : null}
+          <p style={{ marginTop: 16, marginBottom: 0 }}>
+            <button type="submit" disabled={busy}>
+              {busy ? 'Submitting...' : 'Submit request'}
+            </button>
+          </p>
+        </form>
+      </div>
+
+      <div className="card">
+        <h2>My requests</h2>
+        {props.requests.length === 0 ? (
+          <p className="muted">You have not submitted any requests yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Dates</th>
+                <th>Days</th>
+                <th>Status</th>
+                <th>Note</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {props.requests.map(function (r) {
+                return (
+                  <tr key={r.id}>
+                    <td>{r.type}</td>
+                    <td>
+                      {ymd(r.startDate)} to {ymd(r.endDate)}
+                    </td>
+                    <td>{r.days}</td>
+                    <td>
+                      <StatusBadge status={r.status} />
+                    </td>
+                    <td className="muted">{r.decisionNote || r.reason || ''}</td>
+                    <td>
+                      {r.status === 'PENDING' ? (
+                        <button
+                          className="ghost sm"
+                          onClick={function () {
+                            cancel(r.id);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </Layout>
+  );
+}
