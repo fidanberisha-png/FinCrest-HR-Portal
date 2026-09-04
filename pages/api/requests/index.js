@@ -5,6 +5,10 @@ import { notifyNewRequest, notifyDecision } from '../../../lib/mailer';
 
 const TYPES = ['VACATION', 'SICK', 'UNPAID', 'PARENTAL', 'OTHER'];
 
+// Company policy / Kosovo Labour Law: an employee must complete 6 months of
+// service before they are entitled to request leave.
+const MIN_SERVICE_MONTHS = 6;
+
 export default async function handler(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
@@ -35,6 +39,40 @@ export default async function handler(req, res) {
     if (!start || !end) return res.status(400).json({ error: 'Please choose a valid start and end date' });
     if (end.getTime() < start.getTime()) return res.status(400).json({ error: 'The end date cannot be before the start date' });
 
+    // ---- Rule 1: minimum one full day of notice ----------------------------
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+
+    if (start.getTime() < tomorrow.getTime()) {
+      return res.status(400).json({
+        error: 'Politika e brendshme e kompanise nuk e lejon kerkesen ne timeframe 1 dite. Kerkesa duhet te filloje nga dita e neserme ose me vone.'
+      });
+    }
+
+    // ---- Rule 2: six months of service required ---------------------------
+    let employmentStart = null;
+    try {
+      const profile = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { startDate: true }
+      });
+      if (profile && profile.startDate) employmentStart = new Date(profile.startDate);
+    } catch (e) {
+      console.error('[requests] could not read startDate: ' + e.message);
+    }
+
+    if (employmentStart) {
+      const eligibleFrom = new Date(employmentStart.getTime());
+      eligibleFrom.setMonth(eligibleFrom.getMonth() + MIN_SERVICE_MONTHS);
+      eligibleFrom.setHours(0, 0, 0, 0);
+      if (today.getTime() < eligibleFrom.getTime()) {
+        return res.status(403).json({
+          error: 'Nuk mund te kerkoni pushim: kerkohen 6 muaj pune ne kompani. 6 months of employment are required. Ju behet e mundur nga: ' + eligibleFrom.toISOString().slice(0, 10) + '.'
+        });
+      }
+    }
+
     const days = businessDays(start, end);
     if (days < 1) return res.status(400).json({ error: 'That range contains no working days' });
 
@@ -49,8 +87,7 @@ export default async function handler(req, res) {
     if (overlap) return res.status(409).json({ error: 'You already have a request that overlaps those dates' });
 
     // Kosovo Labour Law (Law No. 03/L-212): sick leave of 1-2 days requires no
-    // approval and no medical certificate - it is a notification only. A
-    // certificate is only required starting from the 3rd consecutive day.
+    // approval and no medical certificate - it is a notification only.
     const isShortSick = type === 'SICK' && days <= 2;
 
     try {
