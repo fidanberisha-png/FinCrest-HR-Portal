@@ -1,6 +1,6 @@
 import prisma from '../../../lib/prisma';
 import { requireUser, hasRole } from '../../../lib/auth';
-import { parseDate, businessDays } from '../../../lib/dates';
+import { parseDate, businessDays, ymd } from '../../../lib/dates';
 import { notifyNewRequest, notifyDecision } from '../../../lib/mailer';
 
 const TYPES = ['VACATION', 'SICK', 'UNPAID', 'PARENTAL', 'OTHER'];
@@ -40,14 +40,17 @@ export default async function handler(req, res) {
     if (!start || !end) return res.status(400).json({ error: 'Please choose a valid start and end date' });
     if (end.getTime() < start.getTime()) return res.status(400).json({ error: 'The end date cannot be before the start date' });
 
-    // ---- Rule: minimum one full day of notice ----------------------------
+    // ---- Rule: minimum one full day of notice (today only) ---------------
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    const startKey = ymd(start);
+    const todayKey = ymd(new Date());
 
-    if (start.getTime() < tomorrow.getTime()) {
+    // Past dates are allowed on purpose, so historical leave can still be
+    // entered manually. Only a request that starts today is refused.
+    if (startKey === todayKey) {
       return res.status(400).json({
-        error: 'Politika e brendshme e kompanise nuk e lejon kerkesen ne timeframe 1 dite. Kerkesa duhet te filloje nga dita e neserme ose me vone.'
+        error: 'Politika e brendshme e kompanise nuk e lejon kerkesen ne timeframe 1 dite. Kerkesa duhet te filloje nga dita e neserme ose me vone, ose te jete nje date e kaluar per te dhena historike.'
       });
     }
 
