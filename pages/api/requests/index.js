@@ -5,8 +5,9 @@ import { notifyNewRequest, notifyDecision } from '../../../lib/mailer';
 
 const TYPES = ['VACATION', 'SICK', 'UNPAID', 'PARENTAL', 'OTHER'];
 
-// Company policy / Kosovo Labour Law: an employee must complete 6 months of
-// service before they are entitled to request leave.
+// Kosovo Labour Law: annual leave entitlement is earned after 6 months of
+// service. This is shown to the employee for information only - nobody is
+// prevented from submitting a leave request.
 const MIN_SERVICE_MONTHS = 6;
 
 export default async function handler(req, res) {
@@ -39,7 +40,7 @@ export default async function handler(req, res) {
     if (!start || !end) return res.status(400).json({ error: 'Please choose a valid start and end date' });
     if (end.getTime() < start.getTime()) return res.status(400).json({ error: 'The end date cannot be before the start date' });
 
-    // ---- Rule 1: minimum one full day of notice ----------------------------
+    // ---- Rule: minimum one full day of notice ----------------------------
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
@@ -50,27 +51,26 @@ export default async function handler(req, res) {
       });
     }
 
-    // ---- Rule 2: six months of service required ---------------------------
-    let employmentStart = null;
+    // ---- Six months of service: information only, never a blocker -------
+    let serviceNote = null;
     try {
       const profile = await prisma.user.findUnique({
         where: { id: user.id },
         select: { startDate: true }
       });
-      if (profile && profile.startDate) employmentStart = new Date(profile.startDate);
+      if (profile && profile.startDate) {
+        const eligibleFrom = new Date(profile.startDate);
+        eligibleFrom.setMonth(eligibleFrom.getMonth() + MIN_SERVICE_MONTHS);
+        eligibleFrom.setHours(0, 0, 0, 0);
+        if (today.getTime() < eligibleFrom.getTime()) {
+          serviceNote =
+            'For information: paid annual leave entitlement starts after 6 months of service, on ' +
+            eligibleFrom.toISOString().slice(0, 10) +
+            '. This request has still been submitted for approval.';
+        }
+      }
     } catch (e) {
       console.error('[requests] could not read startDate: ' + e.message);
-    }
-
-    if (employmentStart) {
-      const eligibleFrom = new Date(employmentStart.getTime());
-      eligibleFrom.setMonth(eligibleFrom.getMonth() + MIN_SERVICE_MONTHS);
-      eligibleFrom.setHours(0, 0, 0, 0);
-      if (today.getTime() < eligibleFrom.getTime()) {
-        return res.status(403).json({
-          error: 'Nuk mund te kerkoni pushim: kerkohen 6 muaj pune ne kompani. 6 months of employment are required. Ju behet e mundur nga: ' + eligibleFrom.toISOString().slice(0, 10) + '.'
-        });
-      }
     }
 
     const days = businessDays(start, end);
@@ -117,10 +117,10 @@ export default async function handler(req, res) {
         });
       }
 
-      return res.status(201).json(created);
+      return res.status(201).json(Object.assign({}, created, { note: serviceNote }));
     } catch (err) {
       console.error('[requests] ' + err.message);
-      return res.status(500).json({ error: 'Could not save the request' });
+      return res.status(500).json({ error: 'Could not save the request. Please try again.' });
     }
   }
 
