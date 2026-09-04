@@ -1,13 +1,13 @@
 import prisma from '../../lib/prisma';
 import { requireUser, leaveEligibleFrom, isLeaveEligible } from '../../lib/auth';
 import { resolveStartDate } from '../../lib/roster';
+import { balancesByType } from '../../lib/leave';
 
-// Employee directory. Only administrators and approvers are allowed to see the
-// roster of colleagues - regular employees receive a 403.
+// Employee directory. Administrators AND approvers see exactly the same data:
+// every colleague with their own independent balance for each leave type.
 //
-// Employment start dates are always taken from the official company roster
-// (lib/roster.js), never from what a user typed. Any account whose stored date
-// does not match the roster is corrected automatically here.
+// Employment start dates always come from the official company roster
+// (lib/roster.js), never from what a user typed.
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
@@ -16,6 +16,8 @@ export default async function handler(req, res) {
 
   const user = await requireUser(req, res, ['ADMIN', 'APPROVER']);
   if (!user) return;
+
+  const year = Number(req.query.year) || new Date().getFullYear();
 
   try {
     const rows = await prisma.user.findMany({
@@ -50,29 +52,34 @@ export default async function handler(req, res) {
       }
     }
 
-    // Leave usage for the current calendar year, per employee.
-    const year = new Date().getFullYear();
-    const yearStart = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
-    const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
-    const usage = {};
+    // All leave that touches the requested year, grouped per person.
+    const byUser = {};
     try {
       const requests = await prisma.leaveRequest.findMany({
-        where: { startDate: { gte: yearStart, lte: yearEnd } },
-        select: { userId: true, status: true, days: true }
+        where: {
+          status: { in: ['APPROVED', 'PENDING'] },
+          startDate: { lte: new Date(Date.UTC(year, 11, 31, 23, 59, 59)) },
+          endDate: { gte: new Date(Date.UTC(year, 0, 1, 0, 0, 0)) }
+        },
+        select: { userId: true, type: true, status: true, startDate: true, endDate: true }
       });
       requests.forEach(function (item) {
-        if (!usage[item.userId]) usage[item.userId] = { used: 0, pending: 0 };
-        if (item.status === 'APPROVED') usage[item.userId].used += item.days;
-        if (item.status === 'PENDING') usage[item.userId].pending += item.days;
+        if (!byUser[item.userId]) byUser[item.userId] = [];
+        byUser[item.userId].push(item);
       });
     } catch (e) {
-      console.error('[employees] could not load leave usage: ' + e.message);
+      console.error('[employees] could not load leave: ' + e.message);
     }
 
     const employees = rows.map(function (row) {
       const eligibleFrom = leaveEligibleFrom(row.startDate);
-      const stats = usage[row.id] || { used: 0, pending: 0 };
-      const allowance = row.allowance || 0;
+      const balances = balancesByType(byUser[row.id] || [], year, row.allowance);
+      let totalUsed = 0;
+      let totalPending = 0;
+      balances.forEach(function (b) {
+        totalUsed += b.used + b.planned;
+        totalPending += b.pending;
+      });
       return {
         id: row.id,
         name: row.name,
@@ -80,12 +87,12 @@ export default async function handler(req, res) {
         department: row.department,
         position: row.position,
         role: row.role,
-        allowance: allowance,
+        allowance: row.allowance || 20,
         startDate: row.startDate,
         createdAt: row.createdAt,
-        usedDays: stats.used,
-        pendingDays: stats.pending,
-        remainingDays: allowance - stats.used - stats.pending,
+        balances: balances,
+        usedDays: totalUsed,
+        pendingDays: totalPending,
         leaveEligible: isLeaveEligible(row.startDate),
         leaveEligibleFrom: eligibleFrom ? eligibleFrom.toISOString() : null,
         onRoster: Boolean(resolveStartDate(row.name, row.email))
