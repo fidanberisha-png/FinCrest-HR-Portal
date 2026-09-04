@@ -1,7 +1,7 @@
 import prisma from '../../../lib/prisma';
 import { requireUser } from '../../../lib/auth';
 import ROSTER, { resolveStartDate } from '../../../lib/roster';
-import { vacationYear, balancesByType } from '../../../lib/leave';
+import { vacationYear, balancesByType, allTypeYears } from '../../../lib/leave';
 
 // Yearly vacation (PTO) report for administrators and approvers.
 // Every person on the official company roster gets a row, even before they
@@ -94,7 +94,8 @@ export default async function handler(req, res) {
         pending: pto.pending,
         allowance: pto.allowance,
         remaining: pto.remaining,
-        balances: balancesByType(mine, year, allowance)
+        balances: balancesByType(mine, year, allowance),
+        typeBreakdowns: allTypeYears(mine, year, allowance)
       };
     }
 
