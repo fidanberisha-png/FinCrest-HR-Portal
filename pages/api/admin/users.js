@@ -1,5 +1,5 @@
 import prisma from '../../../lib/prisma';
-import { requireUser } from '../../../lib/auth';
+import { requireUser, leaveEligibleFrom, isLeaveEligible } from '../../../lib/auth';
 
 const ROLES = ['EMPLOYEE', 'APPROVER', 'ADMIN'];
 
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   if (!admin) return;
 
   if (req.method === 'GET') {
-    const users = await prisma.user.findMany({
+    const rows = await prisma.user.findMany({
       orderBy: [{ role: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
@@ -16,11 +16,21 @@ export default async function handler(req, res) {
         name: true,
         role: true,
         department: true,
+        position: true,
+        startDate: true,
         allowance: true,
+        usedBeyondAllowance: true,
         active: true,
         createdAt: true,
         _count: { select: { requests: true } }
       }
+    });
+    const users = rows.map(function (row) {
+      const from = leaveEligibleFrom(row.startDate);
+      return Object.assign({}, row, {
+        leaveEligible: isLeaveEligible(row.startDate),
+        leaveEligibleFrom: from ? from.toISOString() : null
+      });
     });
     return res.status(200).json({ users: users });
   }
@@ -52,14 +62,41 @@ export default async function handler(req, res) {
     if (body.department !== undefined) {
       data.department = String(body.department).trim() || null;
     }
+    if (body.position !== undefined) {
+      data.position = String(body.position).trim() || null;
+    }
+    if (body.startDate !== undefined) {
+      const raw = String(body.startDate).trim();
+      if (!raw) {
+        data.startDate = null;
+      } else {
+        const parsed = new Date(raw.length === 10 ? raw + 'T00:00:00.000Z' : raw);
+        if (isNaN(parsed.getTime())) return res.status(400).json({ error: 'Invalid employment start date' });
+        data.startDate = parsed;
+      }
+    }
     if (Object.keys(data).length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
     const updated = await prisma.user.update({
       where: { id: id },
       data: data,
-      select: { id: true, email: true, name: true, role: true, allowance: true, active: true, department: true }
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        allowance: true,
+        active: true,
+        department: true,
+        position: true,
+        startDate: true
+      }
     });
-    return res.status(200).json(updated);
+    const from = leaveEligibleFrom(updated.startDate);
+    return res.status(200).json(Object.assign({}, updated, {
+      leaveEligible: isLeaveEligible(updated.startDate),
+      leaveEligibleFrom: from ? from.toISOString() : null
+    }));
   }
 
   res.setHeader('Allow', 'GET, PATCH');
