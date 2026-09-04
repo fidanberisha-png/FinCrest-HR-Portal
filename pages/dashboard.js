@@ -434,7 +434,6 @@ export default function Dashboard() {
             <input
               id="startDate"
               type="date"
-              min={tomorrowIso()}
               value={form.startDate}
               onChange={update('startDate')}
               required
@@ -445,7 +444,7 @@ export default function Dashboard() {
             <input
               id="endDate"
               type="date"
-              min={form.startDate || tomorrowIso()}
+              min={form.startDate || undefined}
               value={form.endDate}
               onChange={update('endDate')}
               required
@@ -472,8 +471,9 @@ export default function Dashboard() {
         ) : null}
 
         <p className="note soft" style={{ marginTop: 10 }}>
-          Reminder: a leave request must start tomorrow or later. The internal company
-          policy does not allow a request within a one day timeframe.
+          Reminder: a leave request cannot start today - the internal company policy
+          does not allow a request within a one day timeframe. Choose tomorrow or later,
+          or an earlier date if you are entering past leave manually.
         </p>
         <label htmlFor="reason">Reason (optional)</label>
         <textarea id="reason" value={form.reason} onChange={update('reason')} />
