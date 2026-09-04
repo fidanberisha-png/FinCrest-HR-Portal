@@ -28,7 +28,7 @@ export default function Layout(props) {
           Sign out
         </button>
       </div>
-      <div className="wrap">{props.children}</div>
+      <div className={props.wide ? 'wrap wrap-wide' : 'wrap'}>{props.children}</div>
     </div>
   );
 }
