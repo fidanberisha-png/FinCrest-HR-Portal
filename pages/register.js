@@ -13,7 +13,15 @@ export async function getServerSideProps(ctx) {
 
 export default function Register() {
   const router = useRouter();
-  const [form, setForm] = useState({ name: '', email: '', department: '', password: '', confirm: '' });
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    department: '',
+    position: '',
+    startDate: '',
+    password: '',
+    confirm: ''
+  });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -32,6 +40,10 @@ export default function Register() {
       setError('The two passwords do not match');
       return;
     }
+    if (!form.startDate) {
+      setError('Please enter the date your employment started');
+      return;
+    }
     setBusy(true);
     const res = await fetch('/api/auth/register', {
       method: 'POST',
@@ -40,6 +52,8 @@ export default function Register() {
         name: form.name,
         email: form.email,
         department: form.department,
+        position: form.position,
+        startDate: form.startDate,
         password: form.password
       })
     });
@@ -65,6 +79,24 @@ export default function Register() {
           <input id="email" type="email" value={form.email} onChange={update('email')} required />
           <label htmlFor="department">Department (optional)</label>
           <input id="department" value={form.department} onChange={update('department')} />
+          <label htmlFor="position">Position / job title</label>
+          <input
+            id="position"
+            value={form.position}
+            onChange={update('position')}
+            placeholder="e.g. Financial Analyst"
+          />
+          <label htmlFor="startDate">Employment start date</label>
+          <input
+            id="startDate"
+            type="date"
+            value={form.startDate}
+            onChange={update('startDate')}
+            required
+          />
+          <p className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+            Leave entitlement begins after 6 months of service, so this date is required.
+          </p>
           <label htmlFor="password">Password (min 8 characters)</label>
           <input
             id="password"
