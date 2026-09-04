@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
-import { MONTH_LABELS } from '../../lib/leave';
+import { MONTH_LABELS, LEAVE_TYPES } from '../../lib/leave';
 
 function pretty(value) {
   if (!value) return '-';
@@ -11,6 +11,18 @@ function pretty(value) {
 }
 
 const YEARS = [2024, 2025, 2026, 2027, 2028];
+
+function blankBreakdown() {
+  return { months: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], used: 0, planned: 0, remaining: null };
+}
+
+function breakdownFor(row, type) {
+  const list = row.typeBreakdowns || [];
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].type === type) return list[i];
+  }
+  return blankBreakdown();
+}
 
 export default function LeaveYearReport() {
   const router = useRouter();
@@ -93,139 +105,132 @@ export default function LeaveYearReport() {
     );
   }
 
-  let totalUsed = 0;
-  let totalPlanned = 0;
-  const monthTotals = [];
-  for (let i = 0; i < 12; i++) monthTotals.push(0);
-  rows.forEach(function (row) {
-    totalUsed += row.used;
-    totalPlanned += row.planned;
-    row.months.forEach(function (n, index) {
-      monthTotals[index] += n;
-    });
-  });
-
   return (
     <Layout user={me} wide>
       <h1 style={{ marginBottom: 6 }}>Leave calendar {year}</h1>
       <p className="muted" style={{ marginTop: 0 }}>
-        Vacation / PTO days per month, taken live from approved requests. Visible to
+        Days per month for every leave type, taken live from approved requests. Visible to
         administrators and approvers only.
       </p>
 
       <div className="card">
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <div style={{ maxWidth: 200 }}>
-            <label htmlFor="year">Year</label>
-            <select
-              id="year"
-              value={year}
-              onChange={function (e) {
-                setYear(Number(e.target.value));
-              }}
-            >
-              {YEARS.map(function (item) {
-                return (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-          <div>
-            <p className="muted" style={{ margin: 0 }}>
-              {rows.length} employees &middot; {totalUsed} days already taken &middot;{' '}
-              {totalPlanned} days planned
-            </p>
-          </div>
+        <p className="muted" style={{ margin: '0 0 10px 0' }}>
+          {rows.length} employees on the company roster
+        </p>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {YEARS.map(function (item) {
+            const active = item === year;
+            return (
+              <button
+                key={item}
+                type="button"
+                onClick={function () {
+                  setYear(item);
+                }}
+                className={active ? 'year-tab year-tab-active' : 'year-tab'}
+              >
+                {item}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="card" style={{ overflowX: 'auto' }}>
-        {loading ? (
-          <p className="muted" style={{ margin: 0 }}>
-            Building the report...
-          </p>
-        ) : (
-          <table style={{ fontSize: 13, minWidth: 1150 }}>
-            <thead>
-              <tr>
-                <th>First name</th>
-                <th>Last name</th>
-                <th>Start date</th>
-                {MONTH_LABELS.map(function (label) {
-                  return (
-                    <th key={label} style={{ textAlign: 'center' }}>
-                      {label}
-                    </th>
-                  );
-                })}
-                <th style={{ textAlign: 'center' }}>Total used</th>
-                <th style={{ textAlign: 'center' }}>Total planned</th>
-                <th style={{ textAlign: 'center' }}>Remaining</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(function (row) {
-                return (
-                  <tr key={row.id}>
-                    <td>{row.firstName}</td>
-                    <td>{row.lastName}</td>
-                    <td>{pretty(row.startDate)}</td>
-                    {row.months.map(function (n, index) {
+      {loading
+        ? (
+          <div className="card">
+            <p className="muted" style={{ margin: 0 }}>
+              Building the report...
+            </p>
+          </div>
+        )
+        : LEAVE_TYPES.map(function (type) {
+          let totalUsed = 0;
+          let totalPlanned = 0;
+          const monthTotals = [];
+          for (let i = 0; i < 12; i++) monthTotals.push(0);
+          rows.forEach(function (row) {
+            const b = breakdownFor(row, type.value);
+            totalUsed += b.used;
+            totalPlanned += b.planned;
+            b.months.forEach(function (n, index) {
+              monthTotals[index] += n;
+            });
+          });
+
+          return (
+            <div className="card" key={type.value} style={{ overflowX: 'auto' }}>
+              <h2 style={{ marginTop: 0, marginBottom: 4 }}>{type.label}</h2>
+              <p className="muted" style={{ marginTop: 0 }}>
+                {totalUsed} days already taken &middot; {totalPlanned} days planned
+              </p>
+              <table style={{ fontSize: 13, minWidth: 1150 }}>
+                <thead>
+                  <tr>
+                    <th>First name</th>
+                    <th>Last name</th>
+                    <th>Start date</th>
+                    {MONTH_LABELS.map(function (label) {
                       return (
-                        <td key={index} style={{ textAlign: 'center' }}>
-                          {n ? n : ''}
-                        </td>
+                        <th key={label} style={{ textAlign: 'center' }}>
+                          {label}
+                        </th>
                       );
                     })}
-                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{row.used}</td>
-                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{row.planned}</td>
-                    <td
-                      style={{
-                        textAlign: 'center',
-                        fontWeight: 700,
-                        color: row.remaining < 0 ? '#b42318' : '#0f7b3f'
-                      }}
-                    >
-                      {row.remaining}
-                    </td>
+                    <th style={{ textAlign: 'center' }}>Total used</th>
+                    <th style={{ textAlign: 'center' }}>Total planned</th>
+                    <th style={{ textAlign: 'center' }}>Remaining</th>
                   </tr>
-                );
-              })}
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={18} className="muted">
-                    No active employees found.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th colSpan={3}>All employees</th>
-                {monthTotals.map(function (n, index) {
-                  return (
-                    <th key={index} style={{ textAlign: 'center' }}>
-                      {n ? n : ''}
+                </thead>
+                <tbody>
+                  {rows.map(function (row) {
+                    const b = breakdownFor(row, type.value);
+                    return (
+                      <tr key={row.id}>
+                        <td>{row.firstName}</td>
+                        <td>{row.lastName}</td>
+                        <td>{pretty(row.startDate)}</td>
+                        {b.months.map(function (n, index) {
+                          return (
+                            <td key={index} style={{ textAlign: 'center' }}>
+                              {n ? n : ''}
+                            </td>
+                          );
+                        })}
+                        <td style={{ textAlign: 'center' }}>{b.used}</td>
+                        <td style={{ textAlign: 'center' }}>{b.planned}</td>
+                        <td style={{ textAlign: 'center', fontWeight: 600 }}>
+                          {b.remaining === null ? '-' : b.remaining}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr>
+                    <th colSpan={3} style={{ textAlign: 'right' }}>
+                      All employees
                     </th>
-                  );
-                })}
-                <th style={{ textAlign: 'center' }}>{totalUsed}</th>
-                <th style={{ textAlign: 'center' }}>{totalPlanned}</th>
-                <th />
-              </tr>
-            </tfoot>
-          </table>
-        )}
-        <p className="muted" style={{ marginTop: 12 }}>
-          Total used = approved days that have already passed. Total planned = approved
-          days still in the future. Remaining = annual allowance minus used and planned.
-          Only Vacation / PTO is counted here; each other leave type has its own separate
-          balance on the dashboard.
-        </p>
-      </div>
+                    {monthTotals.map(function (n, index) {
+                      return (
+                        <th key={index} style={{ textAlign: 'center' }}>
+                          {n ? n : ''}
+                        </th>
+                      );
+                    })}
+                    <th style={{ textAlign: 'center' }}>{totalUsed}</th>
+                    <th style={{ textAlign: 'center' }}>{totalPlanned}</th>
+                    <th></th>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+
+      <p className="muted" style={{ marginTop: 4 }}>
+        Total used = approved days that have already passed. Total planned = approved days
+        still in the future. Remaining = allowance minus used and planned; leave types with no
+        fixed limit show &quot;-&quot;. Every leave type keeps its own separate balance.
+      </p>
     </Layout>
   );
 }
