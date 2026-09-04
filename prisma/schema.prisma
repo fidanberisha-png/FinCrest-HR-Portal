@@ -42,6 +42,8 @@ updatedAt DateTime @updatedAt
 
 requests LeaveRequest[] @relation("requester")
 decisions LeaveRequest[] @relation("decider")
+  startDate DateTime?
+  usedBeyondAllowance Int @default(0)
 }
 
 model LeaveRequest {
