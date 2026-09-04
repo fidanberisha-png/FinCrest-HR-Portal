@@ -73,6 +73,9 @@ export default function Login() {
             </button>
           </p>
         </form>
+        <p className="muted" style={{ marginBottom: 4 }}>
+          Forgot your password? <Link href="/forgot-password">Reset it here</Link>
+        </p>
         <p className="muted">
           No account yet? <Link href="/register">Register</Link>
         </p>
