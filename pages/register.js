@@ -18,7 +18,6 @@ export default function Register() {
     email: '',
     department: '',
     position: '',
-    startDate: '',
     password: '',
     confirm: ''
   });
@@ -40,8 +39,8 @@ export default function Register() {
       setError('The two passwords do not match');
       return;
     }
-    if (!form.startDate) {
-      setError('Please enter the date your employment started');
+    if (!form.name.trim() || !form.department.trim() || !form.position.trim()) {
+      setError('Full name, department and position are all required');
       return;
     }
     setBusy(true);
@@ -53,7 +52,6 @@ export default function Register() {
         email: form.email,
         department: form.department,
         position: form.position,
-        startDate: form.startDate,
         password: form.password
       })
     });
@@ -77,25 +75,25 @@ export default function Register() {
           <input id="name" value={form.name} onChange={update('name')} required />
           <label htmlFor="email">Work email</label>
           <input id="email" type="email" value={form.email} onChange={update('email')} required />
-          <label htmlFor="department">Department (optional)</label>
-          <input id="department" value={form.department} onChange={update('department')} />
+          <label htmlFor="department">Department</label>
+          <input
+            id="department"
+            value={form.department}
+            onChange={update('department')}
+            placeholder="e.g. Finance"
+            required
+          />
           <label htmlFor="position">Position / job title</label>
           <input
             id="position"
             value={form.position}
             onChange={update('position')}
             placeholder="e.g. Financial Analyst"
-          />
-          <label htmlFor="startDate">Employment start date</label>
-          <input
-            id="startDate"
-            type="date"
-            value={form.startDate}
-            onChange={update('startDate')}
             required
           />
           <p className="muted" style={{ marginTop: 4, fontSize: 12 }}>
-            Leave entitlement begins after 6 months of service, so this date is required.
+            Your employment start date is taken automatically from the official company
+            records, so you do not need to enter it here.
           </p>
           <label htmlFor="password">Password (min 8 characters)</label>
           <input
@@ -122,8 +120,8 @@ export default function Register() {
             </button>
           </p>
         </form>
-        <p className="muted">
-          New accounts start with the Employee role. Already registered? <Link href="/login">Sign in</Link>
+        <p className="muted" style={{ marginTop: 12 }}>
+          Already have an account? <Link href="/login">Sign in</Link>
         </p>
       </div>
     </div>
