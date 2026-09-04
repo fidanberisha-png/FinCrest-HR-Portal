@@ -25,7 +25,7 @@ function blankBreakdown() {
 }
 
 function breakdownFor(row, type) {
-  const list = row.typeBreakdowns || [];
+  const list = row?.typeBreakdowns || [];
 
   for (let i = 0; i < list.length; i++) {
     if (list[i].type === type) {
@@ -44,6 +44,16 @@ function getEmployeeKey(row) {
   );
 }
 
+function emptyMonths() {
+  return Array(12).fill(0);
+}
+
+function addMonths(target, source) {
+  source.forEach(function (value, index) {
+    target[index] += Number(value || 0);
+  });
+}
+
 export default function LeaveYearReport() {
   const router = useRouter();
 
@@ -51,10 +61,8 @@ export default function LeaveYearReport() {
   const [yearRows, setYearRows] = useState({});
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
+  const [openRows, setOpenRows] = useState({});
 
-  /*
-   * Load logged-in user
-   */
   useEffect(function () {
     let cancelled = false;
 
@@ -87,9 +95,6 @@ export default function LeaveYearReport() {
     };
   }, [router]);
 
-  /*
-   * Load all years
-   */
   useEffect(
     function () {
       if (!me || denied) return;
@@ -105,6 +110,10 @@ export default function LeaveYearReport() {
               const res = await fetch(
                 '/api/reports/leave-year?year=' + year
               );
+
+              if (!res.ok) {
+                throw new Error('Failed to load ' + year);
+              }
 
               const data = await res.json();
 
@@ -155,10 +164,7 @@ export default function LeaveYearReport() {
         <h1>Leave calendar</h1>
 
         <div className="card">
-          <p
-            className="muted"
-            style={{ margin: 0 }}
-          >
+          <p className="muted" style={{ margin: 0 }}>
             This report is available to administrators and approvers only.
           </p>
         </div>
@@ -167,10 +173,7 @@ export default function LeaveYearReport() {
   }
 
   /*
-   * Get all employees from all years.
-   *
-   * This makes sure that an employee still appears
-   * even if they don't have data in one particular year.
+   * Merge the employees from all years into one employee list.
    */
   const employeesMap = {};
 
@@ -198,516 +201,521 @@ export default function LeaveYearReport() {
     return employeesMap[key];
   });
 
+  /*
+   * One table only.
+   *
+   * Employee row:
+   *   - shows the totals for all leave types combined
+   *   - click the row to open/close the leave-type rows
+   *
+   * Expanded rows:
+   *   - PTO
+   *   - Sick Leave
+   *   - Unpaid Leave
+   *   - Parental Leave
+   *   - Other
+   */
   return (
     <Layout user={me} wide>
       <h1 style={{ marginBottom: 6 }}>
         Leave calendar
       </h1>
 
-      <p
-        className="muted"
-        style={{ marginTop: 0 }}
-      >
+      <p className="muted" style={{ marginTop: 0 }}>
         Days per month for every leave type, taken live from approved
         requests. Visible to administrators and approvers only.
       </p>
 
       <div className="card">
-        <p
-          className="muted"
-          style={{ margin: 0 }}
-        >
+        <p className="muted" style={{ margin: 0 }}>
           {employees.length} employees on the company roster
         </p>
       </div>
 
       {loading ? (
         <div className="card">
-          <p
-            className="muted"
-            style={{ margin: 0 }}
-          >
+          <p className="muted" style={{ margin: 0 }}>
             Building the report...
           </p>
         </div>
       ) : (
-        LEAVE_TYPES.map(function (type) {
-          /*
-           * Calculate totals for every year
-           */
-          const yearlyTotals = {};
-
-          YEARS.forEach(function (year) {
-            let used = 0;
-            let planned = 0;
-
-            const months = [];
-
-            for (let i = 0; i < 12; i++) {
-              months.push(0);
-            }
-
-            employees.forEach(function (employee) {
-              const row = employee.years[year];
-
-              if (!row) return;
-
-              const b = breakdownFor(
-                row,
-                type.value
-              );
-
-              used += Number(b.used || 0);
-              planned += Number(b.planned || 0);
-
-              b.months.forEach(function (value, index) {
-                months[index] += Number(value || 0);
-              });
-            });
-
-            yearlyTotals[year] = {
-              used: used,
-              planned: planned,
-              months: months
-            };
-          });
-
-          /*
-           * Grand totals across 2024-2027
-           */
-          let grandUsed = 0;
-          let grandPlanned = 0;
-
-          YEARS.forEach(function (year) {
-            grandUsed += yearlyTotals[year].used;
-            grandPlanned += yearlyTotals[year].planned;
-          });
-
-          /*
-           * Remaining is based on the latest/current
-           * available year for each employee.
-           */
-          return (
-            <div
-              className="card"
-              key={type.value}
+        <div
+          className="card"
+          style={{
+            padding: 0,
+            overflow: 'hidden'
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              overflowX: 'auto',
+              overflowY: 'hidden'
+            }}
+          >
+            <table
               style={{
-                overflowX: 'auto',
-                overflowY: 'hidden'
+                fontSize: 13,
+                minWidth: 2750,
+                borderCollapse: 'separate',
+                borderSpacing: 0
               }}
             >
-              <h2
-                style={{
-                  marginTop: 0,
-                  marginBottom: 4
-                }}
-              >
-                {type.label}
-              </h2>
+              <thead>
+                {/* YEAR HEADER */}
+                <tr>
+                  <th
+                    rowSpan={2}
+                    style={{
+                      position: 'sticky',
+                      left: 0,
+                      zIndex: 10,
+                      background: '#fff',
+                      minWidth: 120,
+                      width: 120
+                    }}
+                  >
+                    First name
+                  </th>
 
-              <p
-                className="muted"
-                style={{ marginTop: 0 }}
-              >
-                {grandUsed} days already taken &middot;{' '}
-                {grandPlanned} days planned
-              </p>
+                  <th
+                    rowSpan={2}
+                    style={{
+                      position: 'sticky',
+                      left: 120,
+                      zIndex: 10,
+                      background: '#fff',
+                      minWidth: 120,
+                      width: 120
+                    }}
+                  >
+                    Last name
+                  </th>
 
-              <div
-                style={{
-                  width: '100%',
-                  overflowX: 'auto',
-                  overflowY: 'visible'
-                }}
-              >
-                <table
-                  style={{
-                    fontSize: 13,
-                    minWidth: 2550,
-                    borderCollapse: 'separate',
-                    borderSpacing: 0
-                  }}
-                >
-                  <thead>
-                    {/* YEAR HEADER */}
-                    <tr>
+                  <th
+                    rowSpan={2}
+                    style={{
+                      position: 'sticky',
+                      left: 240,
+                      zIndex: 10,
+                      background: '#fff',
+                      minWidth: 120,
+                      width: 120,
+                      boxShadow: '4px 0 6px rgba(0,0,0,0.08)'
+                    }}
+                  >
+                    Start date
+                  </th>
+
+                  {YEARS.map(function (year) {
+                    return (
                       <th
-                        rowSpan={2}
-                        style={{
-                          position: 'sticky',
-                          left: 0,
-                          zIndex: 5,
-                          background: '#fff',
-                          minWidth: 110,
-                          width: 110
-                        }}
-                      >
-                        First name
-                      </th>
-
-                      <th
-                        rowSpan={2}
-                        style={{
-                          position: 'sticky',
-                          left: 110,
-                          zIndex: 5,
-                          background: '#fff',
-                          minWidth: 110,
-                          width: 110
-                        }}
-                      >
-                        Last name
-                      </th>
-
-                      <th
-                        rowSpan={2}
-                        style={{
-                          position: 'sticky',
-                          left: 220,
-                          zIndex: 5,
-                          background: '#fff',
-                          minWidth: 110,
-                          width: 110,
-                          boxShadow:
-                            '3px 0 5px rgba(0,0,0,0.08)'
-                        }}
-                      >
-                        Start date
-                      </th>
-
-                      {YEARS.map(function (year) {
-                        return (
-                          <th
-                            key={year}
-                            colSpan={12}
-                            style={{
-                              textAlign: 'center',
-                              fontWeight: 700,
-                              fontSize: 14,
-                              minWidth: 600,
-                              background: '#f5f7fa',
-                              borderLeft:
-                                '1px solid #dfe3e8',
-                              borderRight:
-                                '1px solid #dfe3e8'
-                            }}
-                          >
-                            {year}
-                          </th>
-                        );
-                      })}
-
-                      <th
-                        colSpan={3}
+                        key={year}
+                        colSpan={12}
                         style={{
                           textAlign: 'center',
                           fontWeight: 700,
                           fontSize: 14,
-                          minWidth: 270,
+                          minWidth: 600,
                           background: '#f5f7fa',
-                          borderLeft:
-                            '1px solid #dfe3e8'
+                          borderLeft: '1px solid #dfe3e8',
+                          borderRight: '1px solid #dfe3e8'
                         }}
                       >
-                        TOTAL
+                        {year}
                       </th>
-                    </tr>
+                    );
+                  })}
 
-                    {/* MONTH HEADER */}
-                    <tr>
-                      {YEARS.map(function (year) {
-                        return MONTH_LABELS.map(
-                          function (label) {
+                  <th
+                    colSpan={3}
+                    style={{
+                      textAlign: 'center',
+                      fontWeight: 700,
+                      fontSize: 14,
+                      minWidth: 270,
+                      background: '#f5f7fa',
+                      borderLeft: '1px solid #dfe3e8'
+                    }}
+                  >
+                    TOTAL
+                  </th>
+                </tr>
+
+                {/* MONTH HEADER */}
+                <tr>
+                  {YEARS.map(function (year) {
+                    return MONTH_LABELS.map(function (label, index) {
+                      return (
+                        <th
+                          key={year + '-' + index}
+                          style={{
+                            textAlign: 'center',
+                            minWidth: 50,
+                            width: 50,
+                            whiteSpace: 'nowrap',
+                            background: '#fff'
+                          }}
+                        >
+                          {label}
+                        </th>
+                      );
+                    });
+                  })}
+
+                  <th
+                    style={{
+                      textAlign: 'center',
+                      minWidth: 90,
+                      background: '#fff'
+                    }}
+                  >
+                    Used
+                  </th>
+
+                  <th
+                    style={{
+                      textAlign: 'center',
+                      minWidth: 90,
+                      background: '#fff'
+                    }}
+                  >
+                    Planned
+                  </th>
+
+                  <th
+                    style={{
+                      textAlign: 'center',
+                      minWidth: 90,
+                      background: '#fff'
+                    }}
+                  >
+                    Remaining
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {employees.map(function (employee) {
+                  const employeeKey = getEmployeeKey(employee);
+                  const isOpen = !!openRows[employeeKey];
+
+                  /*
+                   * Totals for the employee.
+                   *
+                   * These are all leave types combined.
+                   */
+                  const combinedMonths = {};
+
+                  YEARS.forEach(function (year) {
+                    combinedMonths[year] = emptyMonths();
+                  });
+
+                  let totalUsed = 0;
+                  let totalPlanned = 0;
+                  let totalRemaining = 0;
+                  let hasRemaining = false;
+
+                  YEARS.forEach(function (year) {
+                    const row = employee.years[year];
+
+                    if (!row) return;
+
+                    LEAVE_TYPES.forEach(function (type) {
+                      const b = breakdownFor(row, type.value);
+
+                      addMonths(
+                        combinedMonths[year],
+                        b.months
+                      );
+
+                      totalUsed += Number(b.used || 0);
+                      totalPlanned += Number(b.planned || 0);
+
+                      if (b.remaining !== null && b.remaining !== undefined) {
+                        totalRemaining += Number(b.remaining || 0);
+                        hasRemaining = true;
+                      }
+                    });
+                  });
+
+                  return (
+                    <>
+                      {/* =========================
+                          EMPLOYEE TOTAL ROW
+                          ========================= */}
+                      <tr
+                        key={employeeKey}
+                        onClick={function () {
+                          setOpenRows(function (previous) {
+                            return {
+                              ...previous,
+                              [employeeKey]: !previous[employeeKey]
+                            };
+                          });
+                        }}
+                        style={{
+                          cursor: 'pointer',
+                          fontWeight: 600
+                        }}
+                      >
+                        <td
+                          style={{
+                            position: 'sticky',
+                            left: 0,
+                            zIndex: 5,
+                            background: '#fff',
+                            minWidth: 120,
+                            width: 120,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: 18
+                            }}
+                          >
+                            {isOpen ? '▼' : '▶'}
+                          </span>
+                          {employee.firstName}
+                        </td>
+
+                        <td
+                          style={{
+                            position: 'sticky',
+                            left: 120,
+                            zIndex: 5,
+                            background: '#fff',
+                            minWidth: 120,
+                            width: 120,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {employee.lastName}
+                        </td>
+
+                        <td
+                          style={{
+                            position: 'sticky',
+                            left: 240,
+                            zIndex: 5,
+                            background: '#fff',
+                            minWidth: 120,
+                            width: 120,
+                            whiteSpace: 'nowrap',
+                            boxShadow: '4px 0 6px rgba(0,0,0,0.08)'
+                          }}
+                        >
+                          {pretty(employee.startDate)}
+                        </td>
+
+                        {/* Combined monthly totals for the employee */}
+                        {YEARS.map(function (year) {
+                          return combinedMonths[year].map(function (value, index) {
                             return (
-                              <th
+                              <td
                                 key={
-                                  year + '-' + label
+                                  employeeKey +
+                                  '-' +
+                                  year +
+                                  '-' +
+                                  index
                                 }
                                 style={{
                                   textAlign: 'center',
                                   minWidth: 50,
-                                  width: 50,
-                                  whiteSpace: 'nowrap'
+                                  width: 50
                                 }}
                               >
-                                {label}
-                              </th>
+                                {value ? value : ''}
+                              </td>
                             );
-                          }
-                        );
-                      })}
+                          });
+                        })}
 
-                      <th
-                        style={{
-                          textAlign: 'center',
-                          minWidth: 90
-                        }}
-                      >
-                        Used
-                      </th>
-
-                      <th
-                        style={{
-                          textAlign: 'center',
-                          minWidth: 90
-                        }}
-                      >
-                        Planned
-                      </th>
-
-                      <th
-                        style={{
-                          textAlign: 'center',
-                          minWidth: 90
-                        }}
-                      >
-                        Remaining
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {employees.map(function (employee) {
-                      let totalUsed = 0;
-                      let totalPlanned = 0;
-
-                      /*
-                       * Calculate total remaining.
-                       *
-                       * We use the latest available remaining
-                       * value for the employee.
-                       */
-                      let remaining = null;
-
-                      YEARS.forEach(function (year) {
-                        const row =
-                          employee.years[year];
-
-                        if (!row) return;
-
-                        const b = breakdownFor(
-                          row,
-                          type.value
-                        );
-
-                        totalUsed += Number(
-                          b.used || 0
-                        );
-
-                        totalPlanned += Number(
-                          b.planned || 0
-                        );
-
-                        if (b.remaining !== null) {
-                          remaining = b.remaining;
-                        }
-                      });
-
-                      return (
-                        <tr
-                          key={getEmployeeKey(
-                            employee
-                          )}
+                        <td
+                          style={{
+                            textAlign: 'center',
+                            fontWeight: 700,
+                            minWidth: 90
+                          }}
                         >
-                          {/* FROZEN FIRST NAME */}
-                          <td
-                            style={{
-                              position: 'sticky',
-                              left: 0,
-                              zIndex: 2,
-                              background: '#fff',
-                              minWidth: 110,
-                              width: 110
-                            }}
-                          >
-                            {employee.firstName}
-                          </td>
+                          {totalUsed}
+                        </td>
 
-                          {/* FROZEN LAST NAME */}
-                          <td
-                            style={{
-                              position: 'sticky',
-                              left: 110,
-                              zIndex: 2,
-                              background: '#fff',
-                              minWidth: 110,
-                              width: 110
-                            }}
-                          >
-                            {employee.lastName}
-                          </td>
+                        <td
+                          style={{
+                            textAlign: 'center',
+                            fontWeight: 700,
+                            minWidth: 90
+                          }}
+                        >
+                          {totalPlanned}
+                        </td>
 
-                          {/* FROZEN START DATE */}
-                          <td
-                            style={{
-                              position: 'sticky',
-                              left: 220,
-                              zIndex: 2,
-                              background: '#fff',
-                              minWidth: 110,
-                              width: 110,
-                              boxShadow:
-                                '3px 0 5px rgba(0,0,0,0.08)'
-                            }}
-                          >
-                            {pretty(
-                              employee.startDate
-                            )}
-                          </td>
+                        <td
+                          style={{
+                            textAlign: 'center',
+                            fontWeight: 700,
+                            minWidth: 90
+                          }}
+                        >
+                          {hasRemaining ? totalRemaining : '-'}
+                        </td>
+                      </tr>
 
-                          {/* YEARS */}
-                          {YEARS.map(function (year) {
-                            const row =
-                              employee.years[year];
+                      {/* =========================
+                          DROPDOWN LEAVE TYPES
+                          ========================= */}
+                      {isOpen &&
+                        LEAVE_TYPES.map(function (type) {
+                          /*
+                           * Each leave type has its own row.
+                           */
+                          let typeUsed = 0;
+                          let typePlanned = 0;
+                          let typeRemaining = null;
 
-                            const b = row
-                              ? breakdownFor(
-                                  row,
-                                  type.value
-                                )
-                              : blankBreakdown();
+                          YEARS.forEach(function (year) {
+                            const row = employee.years[year];
 
-                            return b.months.map(
-                              function (
-                                n,
-                                index
-                              ) {
-                                return (
-                                  <td
-                                    key={
-                                      year +
-                                      '-' +
-                                      index
-                                    }
-                                    style={{
-                                      textAlign:
-                                        'center',
-                                      minWidth: 50,
-                                      width: 50
-                                    }}
-                                  >
-                                    {n ? n : ''}
-                                  </td>
-                                );
-                              }
+                            if (!row) return;
+
+                            const b = breakdownFor(
+                              row,
+                              type.value
                             );
-                          })}
 
-                          {/* TOTAL USED */}
-                          <td
-                            style={{
-                              textAlign: 'center',
-                              fontWeight: 600,
-                              minWidth: 90
-                            }}
-                          >
-                            {totalUsed}
-                          </td>
+                            typeUsed += Number(b.used || 0);
+                            typePlanned += Number(b.planned || 0);
 
-                          {/* TOTAL PLANNED */}
-                          <td
-                            style={{
-                              textAlign: 'center',
-                              fontWeight: 600,
-                              minWidth: 90
-                            }}
-                          >
-                            {totalPlanned}
-                          </td>
+                            /*
+                             * Use the latest available remaining
+                             * value for this leave type.
+                             */
+                            if (
+                              b.remaining !== null &&
+                              b.remaining !== undefined
+                            ) {
+                              typeRemaining = b.remaining;
+                            }
+                          });
 
-                          {/* REMAINING */}
-                          <td
-                            style={{
-                              textAlign: 'center',
-                              fontWeight: 600,
-                              minWidth: 90
-                            }}
-                          >
-                            {remaining === null
-                              ? '-'
-                              : remaining}
-                          </td>
-                        </tr>
-                      );
-                    })}
-
-                    {/* ALL EMPLOYEES */}
-                    <tr>
-                      <th
-                        colSpan={3}
-                        style={{
-                          position: 'sticky',
-                          left: 0,
-                          zIndex: 2,
-                          background: '#fff',
-                          textAlign: 'right',
-                          boxShadow:
-                            '3px 0 5px rgba(0,0,0,0.08)'
-                        }}
-                      >
-                        All employees
-                      </th>
-
-                      {YEARS.map(function (year) {
-                        return yearlyTotals[
-                          year
-                        ].months.map(
-                          function (n, index) {
-                            return (
-                              <th
-                                key={
-                                  year +
-                                  '-total-' +
-                                  index
-                                }
+                          return (
+                            <tr
+                              key={
+                                employeeKey +
+                                '-' +
+                                type.value
+                              }
+                              style={{
+                                background: '#fafbfc'
+                              }}
+                            >
+                              <td
+                                colSpan={3}
                                 style={{
-                                  textAlign:
-                                    'center',
-                                  minWidth: 50
+                                  position: 'sticky',
+                                  left: 0,
+                                  zIndex: 4,
+                                  background: '#fafbfc',
+                                  minWidth: 360,
+                                  boxShadow: '4px 0 6px rgba(0,0,0,0.05)',
+                                  paddingLeft: 34,
+                                  fontWeight: 500
                                 }}
                               >
-                                {n ? n : ''}
-                              </th>
-                            );
-                          }
-                        );
-                      })}
+                                {type.label}
+                              </td>
 
-                      <th
-                        style={{
-                          textAlign: 'center'
-                        }}
-                      >
-                        {grandUsed}
-                      </th>
+                              {YEARS.map(function (year) {
+                                const row =
+                                  employee.years[year];
 
-                      <th
-                        style={{
-                          textAlign: 'center'
-                        }}
-                      >
-                        {grandPlanned}
-                      </th>
+                                const b = row
+                                  ? breakdownFor(
+                                      row,
+                                      type.value
+                                    )
+                                  : blankBreakdown();
 
-                      <th></th>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })
+                                return b.months.map(function (
+                                  value,
+                                  index
+                                ) {
+                                  return (
+                                    <td
+                                      key={
+                                        employeeKey +
+                                        '-' +
+                                        type.value +
+                                        '-' +
+                                        year +
+                                        '-' +
+                                        index
+                                      }
+                                      style={{
+                                        textAlign: 'center',
+                                        minWidth: 50,
+                                        width: 50
+                                      }}
+                                    >
+                                      {value ? value : ''}
+                                    </td>
+                                  );
+                                });
+                              })}
+
+                              <td
+                                style={{
+                                  textAlign: 'center',
+                                  minWidth: 90
+                                }}
+                              >
+                                {typeUsed}
+                              </td>
+
+                              <td
+                                style={{
+                                  textAlign: 'center',
+                                  minWidth: 90
+                                }}
+                              >
+                                {typePlanned}
+                              </td>
+
+                              <td
+                                style={{
+                                  textAlign: 'center',
+                                  fontWeight: 600,
+                                  minWidth: 90
+                                }}
+                              >
+                                {typeRemaining === null
+                                  ? '-'
+                                  : typeRemaining}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       <p
         className="muted"
-        style={{ marginTop: 4 }}
+        style={{ marginTop: 8 }}
       >
-        Total used = approved days that have already
-        passed. Total planned = approved days still in
-        the future. Remaining = allowance minus used
-        and planned. Every leave type keeps its own
-        separate balance.
+        Click an employee row to expand or collapse the individual leave
+        types. The employee row shows the combined totals of all leave
+        types. Use the horizontal scroll to move through 2024, 2025, 2026,
+        2027 and TOTAL.
       </p>
     </Layout>
   );
