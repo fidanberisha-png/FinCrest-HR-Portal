@@ -2,14 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
-
-const LEAVE_TYPES = [
-  { value: 'VACATION', label: 'Vacation / PTO' },
-  { value: 'SICK', label: 'Sick leave' },
-  { value: 'UNPAID', label: 'Unpaid leave' },
-  { value: 'PARENTAL', label: 'Parental leave' },
-  { value: 'OTHER', label: 'Other (special circumstances)' }
-];
+import { LEAVE_TYPES, balancesByType, balanceFor } from '../lib/leave';
 
 const POLICY = [
   {
@@ -39,9 +32,6 @@ const POLICY = [
   }
 ];
 
-// Kosovo Labour Law: annual leave entitlement is earned after 6 months of
-// service. This is shown for information only - leave requests are never
-// blocked for anyone.
 const MIN_SERVICE_MONTHS = 6;
 
 function tomorrowIso() {
@@ -73,34 +63,64 @@ function hasEntitlement(startDate) {
   return Date.now() >= from.getTime();
 }
 
-function daysWithStatus(list, status) {
-  const year = new Date().getFullYear();
-  let total = 0;
-  list.forEach(function (item) {
-    if (item.status !== status) return;
-    const when = new Date(item.startDate);
-    if (when.getFullYear() !== year) return;
-    total += item.days || 0;
-  });
-  return total;
-}
-
-function Stat(props) {
+// One row per leave type - every type keeps its own separate pool of days.
+function BalanceTable(props) {
+  const balances = props.balances || [];
+  const entitled = props.entitled;
   return (
-    <div className="stat">
-      <div className="n">{props.n}</div>
-      <div className="l">{props.l}</div>
-    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Leave type</th>
+          <th style={{ textAlign: 'center' }}>Allowance</th>
+          <th style={{ textAlign: 'center' }}>Used</th>
+          <th style={{ textAlign: 'center' }}>Planned</th>
+          <th style={{ textAlign: 'center' }}>Pending</th>
+          <th style={{ textAlign: 'center' }}>Remaining</th>
+        </tr>
+      </thead>
+      <tbody>
+        {balances.map(function (row) {
+          const unlimited = row.allowance === null;
+          const negative = !unlimited && row.remaining < 0;
+          return (
+            <tr key={row.type}>
+              <td>{row.label}</td>
+              <td style={{ textAlign: 'center' }}>
+                {unlimited ? 'No fixed limit' : row.allowance}
+              </td>
+              <td style={{ textAlign: 'center' }}>{row.used}</td>
+              <td style={{ textAlign: 'center' }}>{row.planned}</td>
+              <td style={{ textAlign: 'center' }}>{row.pending}</td>
+              <td
+                style={{
+                  textAlign: 'center',
+                  fontWeight: 700,
+                  color: negative ? '#b42318' : unlimited ? '#6b7280' : '#0f7b3f'
+                }}
+              >
+                {unlimited ? '-' : row.remaining}
+                {negative && entitled ? (
+                  <span className="badge REJECTED" style={{ marginLeft: 6 }}>
+                    {Math.abs(row.remaining)} beyond allowance
+                  </span>
+                ) : null}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
-// The summary card - name, department, position, employment date, the six
-// month notice and the four counters. Nothing else.
+// Name, department, position, employment date, the six month notice and the
+// separate balance of every leave type. Nothing else.
 function Summary(props) {
   const person = props.person;
   const from = entitlementStart(person.startDate);
   const entitled = hasEntitlement(person.startDate);
-  const beyond = person.allowance - person.used;
+  const year = new Date().getFullYear();
 
   return (
     <div>
@@ -133,20 +153,14 @@ function Summary(props) {
         </div>
       ) : null}
 
-      <div className="stats">
-        <Stat n={person.allowance} l="Annual allowance" />
-        <Stat n={person.used} l="Approved days used" />
-        <Stat n={person.pending} l="Days pending" />
-        <Stat n={beyond} l="Days remaining" />
-      </div>
-
-      {entitled && beyond < 0 ? (
-        <p style={{ marginTop: 12 }}>
-          <span className="badge REJECTED">
-            {Math.abs(beyond)} days taken beyond the annual allowance
-          </span>
+      <div className="card">
+        <h2>Leave balances {year}</h2>
+        <p className="muted" style={{ marginTop: -8 }}>
+          Every leave type has its own separate pool of days. Days taken from one type
+          never reduce the balance of another type.
         </p>
-      ) : null}
+        <BalanceTable balances={person.balances} entitled={entitled} />
+      </div>
     </div>
   );
 }
@@ -212,12 +226,19 @@ export default function Dashboard() {
     };
   }, []);
 
-  async function reloadRequests() {
+  async function reloadAll() {
     const res = await fetch('/api/requests?scope=mine');
     const data = await res.json().catch(function () {
       return {};
     });
     setRequests(data.requests || []);
+    if (me && (me.role === 'ADMIN' || me.role === 'APPROVER')) {
+      const empRes = await fetch('/api/employees');
+      const empData = await empRes.json().catch(function () {
+        return {};
+      });
+      setEmployees(empData.employees || []);
+    }
   }
 
   function update(key) {
@@ -248,7 +269,7 @@ export default function Dashboard() {
     }
     setOkMsg(data.note || 'Your leave request has been submitted.');
     setForm({ type: 'VACATION', startDate: '', endDate: '', reason: '' });
-    reloadRequests();
+    reloadAll();
   }
 
   if (loading || !me) {
@@ -260,18 +281,16 @@ export default function Dashboard() {
   }
 
   const canSeeDirectory = me.role === 'ADMIN' || me.role === 'APPROVER';
-  const used = daysWithStatus(requests, 'APPROVED');
-  const pending = daysWithStatus(requests, 'PENDING');
-  const myAllowance = me.allowance || 0;
+  const year = new Date().getFullYear();
+  const myBalances = balancesByType(requests, year, me.allowance);
+  const selectedBalance = balanceFor(myBalances, form.type);
 
   const mySummary = {
     name: me.name,
     department: me.department,
     position: me.position,
     startDate: me.startDate,
-    allowance: myAllowance,
-    used: used,
-    pending: pending
+    balances: myBalances
   };
 
   const picked = employees.filter(function (row) {
@@ -284,9 +303,7 @@ export default function Dashboard() {
         department: picked.department,
         position: picked.position,
         startDate: picked.startDate,
-        allowance: picked.allowance || 0,
-        used: picked.usedDays || 0,
-        pending: picked.pendingDays || 0
+        balances: picked.balances || []
       }
     : null;
 
@@ -354,7 +371,6 @@ export default function Dashboard() {
           <p style={{ margin: '0 0 4px' }}>Email: {picked.email}</p>
           <p style={{ margin: '0 0 4px' }}>Role: {picked.role}</p>
           <p style={{ margin: '0 0 4px' }}>Employed since: {pretty(picked.startDate)}</p>
-          <p style={{ margin: '0 0 4px' }}>Annual allowance: {picked.allowance} days</p>
           <p style={{ margin: 0 }}>
             Leave entitlement:{' '}
             {picked.leaveEligible
@@ -436,7 +452,26 @@ export default function Dashboard() {
             />
           </div>
         </div>
-        <p className="note" style={{ marginTop: 12 }}>
+
+        {selectedBalance ? (
+          <p className="note" style={{ marginTop: 12 }}>
+            <strong>{selectedBalance.label}:</strong>{' '}
+            {selectedBalance.allowance === null
+              ? 'no fixed limit for this type.'
+              : selectedBalance.remaining +
+                ' of ' +
+                selectedBalance.allowance +
+                ' days still available this year (' +
+                selectedBalance.used +
+                ' used, ' +
+                selectedBalance.planned +
+                ' planned, ' +
+                selectedBalance.pending +
+                ' pending). This pool is separate from every other leave type.'}
+          </p>
+        ) : null}
+
+        <p className="note soft" style={{ marginTop: 10 }}>
           Reminder: a leave request must start tomorrow or later. The internal company
           policy does not allow a request within a one day timeframe.
         </p>
@@ -499,7 +534,7 @@ export default function Dashboard() {
   ) : (
     <div>
       <Summary person={mySummary} />
-      <div style={{ marginTop: 20 }}>
+      <div>
         {policyCard}
         {requestCard}
         {myRequestsCard}
