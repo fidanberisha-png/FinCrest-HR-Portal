@@ -12,10 +12,18 @@ export default async function handler(req, res) {
   const name = String(body.name || '').trim();
   const password = String(body.password || '');
   const department = String(body.department || '').trim();
+  const position = String(body.position || '').trim();
+  const startDateRaw = String(body.startDate || '').trim();
 
   if (!name || name.length < 2) return res.status(400).json({ error: 'Please enter your full name' });
   if (!email || email.indexOf('@') === -1) return res.status(400).json({ error: 'Please enter a valid email address' });
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+  // The employment start date drives the 6-month leave eligibility rule, so it
+  // is a required field on registration.
+  if (!startDateRaw) return res.status(400).json({ error: 'Please enter your employment start date' });
+  const startDate = new Date(startDateRaw + 'T00:00:00.000Z');
+  if (isNaN(startDate.getTime())) return res.status(400).json({ error: 'Please enter a valid employment start date' });
 
   try {
     const existing = await prisma.user.findUnique({ where: { email: email } });
@@ -27,6 +35,8 @@ export default async function handler(req, res) {
         name: name,
         passwordHash: await hashPassword(password),
         department: department || null,
+        position: position || null,
+        startDate: startDate,
         role: 'EMPLOYEE'
       }
     });
