@@ -101,3 +101,19 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
 .stat { flex: 1; min-width: 130px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
 .stat .n { font-size: 24px; font-weight: 700; }
 .stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Wide dashboard layout: employee directory on the left, my dashboard on the right */
+.wrap.wrap-wide { max-width: 1360px; }
+.split { display: flex; gap: 20px; align-items: flex-start; }
+.split > .side { flex: 0 0 430px; width: 430px; }
+.split > .main { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 1100px) {
+  .split { display: block; }
+  .split > .side { width: auto; flex: none; }
+}
+
+tr.pick { cursor: pointer; }
+tr.pick:hover { background: #f3f6ff; }
+tr.pick.on { background: #e8effd; }
+.note { background: #eef3ff; color: #1e40af; padding: 9px 11px; border-radius: 7px; font-size: 13px; }
+.note.soft { background: #f7f8fa; color: var(--muted); }
