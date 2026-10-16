@@ -1,6 +1,7 @@
 import prisma from '../../../lib/prisma';
 import { requireUser, hasRole } from '../../../lib/auth';
 import { notifyDecision } from '../../../lib/mailer';
+import { notionEnabled, setNotionStatus, archiveNotionPage } from '../../../lib/notionLeave';
 
 export default async function handler(req, res) {
   const user = await requireUser(req, res);
@@ -29,6 +30,11 @@ export default async function handler(req, res) {
         where: { id: id },
         data: { status: 'CANCELLED', decisionNote: note || null }
       });
+      if (request.notionPageId && notionEnabled()) {
+        await archiveNotionPage(request.notionPageId).catch(function (err) {
+          console.error('[requests] Notion archive failed: ' + err.message);
+        });
+      }
       return res.status(200).json(updated);
     }
 
@@ -49,9 +55,16 @@ export default async function handler(req, res) {
         }
       });
 
-      notifyDecision(updated, request.user, user).catch(function (err) {
-        console.error('[requests] decision email failed: ' + err.message);
-      });
+      if (request.notionPageId && notionEnabled()) {
+        // Notion's automation emails the employee when the status changes.
+        await setNotionStatus(request.notionPageId, updated.status, updated.decisionNote).catch(function (err) {
+          console.error('[requests] Notion update failed: ' + err.message);
+        });
+      } else {
+        notifyDecision(updated, request.user, user).catch(function (err) {
+          console.error('[requests] decision email failed: ' + err.message);
+        });
+      }
 
       return res.status(200).json(updated);
     }

@@ -2,6 +2,7 @@ import prisma from '../../../lib/prisma';
 import { requireUser, hasRole } from '../../../lib/auth';
 import { parseDate, businessDays, ymd } from '../../../lib/dates';
 import { notifyNewRequest, notifyDecision } from '../../../lib/mailer';
+import { notionEnabled, createLeavePageFromPortal } from '../../../lib/notionLeave';
 
 const TYPES = ['VACATION', 'SICK', 'UNPAID', 'PARENTAL', 'OTHER'];
 
@@ -110,11 +111,27 @@ export default async function handler(req, res) {
         }
       });
 
+      // Copy the request to Notion (HR > Leave Requests). Notion then emails
+      // Pajazit the Approve / Reject link and notifies Fidan, so the portal
+      // does not send its own approval email in that case.
+      let inNotion = false;
+      if (notionEnabled()) {
+        try {
+          const pageId = await createLeavePageFromPortal(created, user);
+          if (pageId) {
+            await prisma.leaveRequest.update({ where: { id: created.id }, data: { notionPageId: pageId } });
+            inNotion = true;
+          }
+        } catch (err) {
+          console.error('[requests] Notion copy failed: ' + err.message);
+        }
+      }
+
       if (isShortSick) {
         notifyDecision(created, user, null).catch(function (err) {
           console.error('[requests] notification failed: ' + err.message);
         });
-      } else {
+      } else if (!inNotion) {
         notifyNewRequest(created, user).catch(function (err) {
           console.error('[requests] notification failed: ' + err.message);
         });
